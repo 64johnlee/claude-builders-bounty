@@ -47,6 +47,12 @@ from hook import is_blocked, main
     ("sudo rm -rf /var/cache",     True),
     # piped commands — safe side is safe, dangerous side still blocked
     ("cat file.txt | rm -rf -",    True),
+    # dd disk overwrite
+    ("dd if=/dev/zero of=/dev/sda",   True),
+    ("dd if=backup.img of=/dev/sdb1", True),
+    ("dd if=/dev/sda of=backup.img",  False),  # reading from disk is safe
+    # fork bomb
+    (":(){ :|:& };:",              True),
     # normal commands — must not block
     ("ls -la",           False),
     ("echo hello",       False),
