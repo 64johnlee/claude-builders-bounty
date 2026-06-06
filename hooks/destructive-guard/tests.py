@@ -1,9 +1,11 @@
 """Unit tests for destructive-guard hook."""
 import sys
 import os
+import json
+import io
 sys.path.insert(0, os.path.dirname(__file__))
 import pytest
-from hook import is_blocked
+from hook import is_blocked, main
 
 
 @pytest.mark.parametrize("cmd,should_block", [
@@ -39,12 +41,19 @@ from hook import is_blocked
     ("git push -f origin main",       True),
     ("git push origin main",          False),
     ("git push --force-with-lease",   False),
+    # multi-command — still blocked when embedded
+    ("echo hello && rm -rf /tmp",  True),
+    ("ls; rm -rf .",               True),
+    ("sudo rm -rf /var/cache",     True),
+    # piped commands — safe side is safe, dangerous side still blocked
+    ("cat file.txt | rm -rf -",    True),
     # normal commands — must not block
     ("ls -la",           False),
     ("echo hello",       False),
     ("find . -name '*.py'", False),
     ("mkdir -p /tmp/build", False),
     ("npm install",      False),
+    ("git push --force-with-lease origin main", False),
 ])
 def test_is_blocked(cmd, should_block):
     blocked, reason = is_blocked(cmd)
@@ -62,3 +71,37 @@ def test_reason_non_empty_when_blocked():
 def test_reason_empty_when_allowed():
     blocked, reason = is_blocked("ls -la")
     assert not blocked and reason == ""
+
+
+class TestMain:
+    def _run(self, stdin_data: dict | list, capsys, monkeypatch) -> dict:
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(stdin_data)))
+        main()
+        out = capsys.readouterr().out
+        return json.loads(out)
+
+    def test_non_bash_tool_allowed(self, capsys, monkeypatch):
+        result = self._run({"tool_name": "Read", "tool_input": {"path": "/etc"}}, capsys, monkeypatch)
+        assert result["decision"] == "allow"
+
+    def test_bash_safe_command_allowed(self, capsys, monkeypatch):
+        result = self._run({"tool_name": "Bash", "tool_input": {"command": "ls -la"}}, capsys, monkeypatch)
+        assert result["decision"] == "allow"
+
+    def test_bash_destructive_blocked(self, capsys, monkeypatch):
+        result = self._run({"tool_name": "Bash", "tool_input": {"command": "rm -rf /"}}, capsys, monkeypatch)
+        assert result["decision"] == "block"
+        assert "reason" in result
+
+    def test_non_dict_json_allowed(self, capsys, monkeypatch):
+        # Valid JSON that is not a dict — must not crash
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps([1, 2, 3])))
+        main()
+        out = capsys.readouterr().out
+        assert json.loads(out)["decision"] == "allow"
+
+    def test_malformed_json_exits_cleanly(self, monkeypatch):
+        monkeypatch.setattr("sys.stdin", io.StringIO("{not valid json"))
+        with pytest.raises(SystemExit) as exc:
+            main()
+        assert exc.value.code == 0
