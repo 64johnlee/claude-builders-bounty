@@ -72,7 +72,7 @@ def main() -> None:
     except (json.JSONDecodeError, ValueError):
         sys.exit(0)  # malformed input — don't interfere
 
-    if data.get("tool_name") != "Bash":
+    if not isinstance(data, dict) or data.get("tool_name") != "Bash":
         print(json.dumps({"decision": "allow"}))
         return
 
