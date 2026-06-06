@@ -19,6 +19,8 @@ _SQL_TRUNCATE = re.compile(r'\bTRUNCATE\b', re.IGNORECASE)
 _SQL_DELETE   = re.compile(r'\bDELETE\s+FROM\s+\S+', re.IGNORECASE)
 _SQL_WHERE    = re.compile(r'\bWHERE\b', re.IGNORECASE)
 _GIT_FORCE    = re.compile(r'\bgit\s+push\b.*?(\s--force(?!-)|\s-f\b)', re.IGNORECASE)
+_DD_DISK      = re.compile(r'\bdd\b.*\bof=/dev/', re.IGNORECASE)
+_FORK_BOMB    = re.compile(r':\(\s*\)\s*\{.*:\s*\|.*:.*&.*\}')  # :(){ :|:& };
 
 
 def _is_rm_rf(command: str) -> bool:
@@ -47,6 +49,10 @@ def is_blocked(command: str) -> tuple[bool, str]:
         return True, "DELETE FROM without WHERE: would delete every row in the table"
     if _GIT_FORCE.search(command):
         return True, "git push --force: rewrites remote history and can destroy others' work"
+    if _DD_DISK.search(command):
+        return True, "dd of=/dev/*: overwrites raw disk device, destroys partition data"
+    if _FORK_BOMB.search(command):
+        return True, "fork bomb detected: :(){ :|:& }; exhausts all processes and crashes the system"
     return False, ""
 
 
