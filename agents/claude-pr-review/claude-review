@@ -31,6 +31,8 @@ def github_get(path: str, token: str | None) -> dict | str:
             return json.loads(r.read())
     except urllib.error.HTTPError as e:
         sys.exit(f"GitHub API error {e.code} for {path}: {e.read().decode()}")
+    except urllib.error.URLError as e:
+        sys.exit(f"Network error fetching {path}: {e.reason}")
 
 
 def github_diff(owner: str, repo: str, pr_number: int, token: str | None) -> str:
@@ -45,6 +47,8 @@ def github_diff(owner: str, repo: str, pr_number: int, token: str | None) -> str
             return r.read().decode("utf-8", errors="replace")
     except urllib.error.HTTPError as e:
         sys.exit(f"GitHub diff error {e.code}: {e.read().decode()}")
+    except urllib.error.URLError as e:
+        sys.exit(f"Network error fetching diff: {e.reason}")
 
 
 def claude_review(pr_meta: dict, diff: str, api_key: str) -> str:
@@ -58,9 +62,9 @@ def claude_review(pr_meta: dict, diff: str, api_key: str) -> str:
 - **Additions**: +{pr_meta.get('additions', '?')}  **Deletions**: -{pr_meta.get('deletions', '?')}
 - **Description**: {pr_meta.get('body') or '(none)'}
 
-## Diff (truncated to 12000 chars)
+## Diff
 ```diff
-{diff[:12000]}
+{diff}
 ```
 
 Produce a review in exactly this Markdown format:
@@ -84,7 +88,7 @@ Produce a review in exactly this Markdown format:
 
     payload = json.dumps({
         "model": "claude-haiku-4-5-20251001",
-        "max_tokens": 1024,
+        "max_tokens": 2048,
         "messages": [{"role": "user", "content": prompt}],
     }).encode()
 
@@ -102,8 +106,13 @@ Produce a review in exactly this Markdown format:
             resp = json.loads(r.read())
     except urllib.error.HTTPError as e:
         sys.exit(f"Anthropic API error {e.code}: {e.read().decode()}")
+    except urllib.error.URLError as e:
+        sys.exit(f"Network error calling Anthropic API: {e.reason}")
 
-    return resp["content"][0]["text"]
+    blocks = resp.get("content", [])
+    if not blocks or blocks[0].get("type") != "text":
+        sys.exit("Anthropic API returned no text content")
+    return blocks[0]["text"]
 
 
 def main() -> None:
@@ -123,6 +132,11 @@ def main() -> None:
 
     pr_meta = github_get(f"/repos/{owner}/{repo}/pulls/{pr_number}", github_token)
     diff = github_diff(owner, repo, pr_number, github_token)
+
+    DIFF_LIMIT = 12000
+    if len(diff) > DIFF_LIMIT:
+        print(f"Warning: diff is {len(diff)} chars; truncating to {DIFF_LIMIT} ({len(diff) - DIFF_LIMIT} chars omitted)", file=sys.stderr)
+        diff = diff[:DIFF_LIMIT]
 
     print("Sending to Claude for review...", file=sys.stderr)
     review = claude_review(pr_meta, diff, api_key)
