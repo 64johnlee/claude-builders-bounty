@@ -167,6 +167,14 @@ class TestMain(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 mod.main()
 
+    def test_post_comment_without_token_exits(self):
+        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "fake"}, clear=True), \
+             patch("sys.argv", ["claude-review", "--pr", "https://github.com/a/b/pull/1",
+                                "--post-comment"]):
+            with self.assertRaises(SystemExit) as cm:
+                mod.main()
+        self.assertIn("GITHUB_TOKEN", str(cm.exception))
+
 
 if __name__ == "__main__":
     unittest.main()
