@@ -38,29 +38,41 @@ urls.includes('anthropic.com') ? pass('calls Anthropic API') : fail('no Anthropi
 const bodyStr = httpNodes.map(n => JSON.stringify(n.parameters.body || '')).join(' ');
 bodyStr.includes('claude-sonnet-4-20250514') ? pass('model: claude-sonnet-4-20250514') : fail('wrong/missing model ID');
 
-// 6. Discord delivery
-JSON.stringify(wf).includes('discord')
-  ? pass('Discord delivery node present') : fail('no Discord delivery');
+// 6. Multi-channel delivery: Discord, Slack, email
+const wfStr = JSON.stringify(wf);
+wfStr.includes('discord')    ? pass('Discord delivery node present') : fail('no Discord delivery');
+wfStr.includes('slack')      ? pass('Slack delivery node present')   : fail('no Slack delivery');
+wfStr.includes('emailSend') || wfStr.includes('notifEmail')
+  ? pass('Email delivery node present') : fail('no email delivery');
 
-// 7. Configurable variables
+// 7. Channel routing switch node
+wf.nodes.find(n => n.type === 'n8n-nodes-base.switch')
+  ? pass('Switch/router node present for channel selection')
+  : fail('missing switch node for channel routing');
+
+// 8. Configurable variables
 const cfgNode = wf.nodes.find(n => n.type === 'n8n-nodes-base.set');
 const cfgStr = JSON.stringify(cfgNode?.parameters || '');
-['GITHUB_OWNER', 'GITHUB_REPO', 'SUMMARY_LANGUAGE', 'ANTHROPIC_API_KEY', 'DISCORD_WEBHOOK_URL']
-  .forEach(v => cfgStr.includes(v) ? pass(`config var: ${v}`) : fail(`missing config var: ${v}`));
+[
+  'GITHUB_OWNER', 'GITHUB_REPO', 'SUMMARY_LANGUAGE',
+  'ANTHROPIC_API_KEY', 'DISCORD_WEBHOOK_URL',
+  'SLACK_WEBHOOK_URL', 'NOTIFICATION_EMAIL', 'DELIVERY_CHANNEL'
+].forEach(v => cfgStr.includes(v) ? pass(`config var: ${v}`) : fail(`missing config var: ${v}`));
 
-// 8. EN/FR language support
-JSON.stringify(wf).includes('FR') ? pass('FR language variant present') : fail('no FR language support');
+// 9. EN/FR language support
+wfStr.includes('FR') ? pass('FR language variant present') : fail('no FR language support');
 
-// 9. Connections — enough sources wired
+// 10. Connections — all non-terminal nodes wired (≤3 terminal delivery nodes expected)
 const connectedSrc = Object.keys(wf.connections);
-connectedSrc.length >= wf.nodes.length - 1
-  ? pass(`connections: ${connectedSrc.length} source(s) wired`)
-  : fail('workflow has disconnected nodes');
+const terminalCount = wf.nodes.length - connectedSrc.length;
+terminalCount <= 3
+  ? pass(`connections: ${connectedSrc.length} source(s) wired, ${terminalCount} terminal delivery node(s)`)
+  : fail(`workflow has ${terminalCount} nodes with no outgoing connections (expected ≤3)`);
 
-// 10. Node count
-wf.nodes.length >= 9
+// 11. Node count
+wf.nodes.length >= 14
   ? pass(`${wf.nodes.length} nodes total`)
-  : fail(`only ${wf.nodes.length} nodes — expected ≥9`);
+  : fail(`only ${wf.nodes.length} nodes — expected ≥14`);
 
 // Summary
 const passed = results.filter(r => r.ok).length;
